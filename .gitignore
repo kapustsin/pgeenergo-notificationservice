@@ -6,7 +6,10 @@ Test*.*
 .scannerwork/
 .idea/
 out/
-target/
+!target
+target/*
+!/target/notificationservice-0.0.1-SNAPSHOT.war
+data/
 HELP.md
 .mvn/
 mvnw*

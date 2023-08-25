@@ -1,0 +1,39 @@
+services:
+  postgres:
+    restart: always
+    container_name: postgres
+    image: postgres_initialized:12
+    build:
+      context: ./docker/postgres
+      dockerfile: Dockerfile
+    environment:
+      - POSTGRES_PASSWORD=admin
+      - TZ=Europe/Moscow
+    expose:
+      - 5432
+    ports:
+      - 2345:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+
+  notification-service:
+    restart: on-failure
+    container_name: notification-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - SYSTEM_DB_NS_URL=jdbc:postgresql://postgres:5432/notificationservice
+      - SYSTEM_DB_USER=postgres
+      - SYSTEM_DB_PASSWORD=admin
+      - TZ=Europe/Moscow
+    ports:
+      - 8080:8080
