@@ -15,6 +15,7 @@ import ru.pgeenergo.notificationservice.domain.User;
 import ru.pgeenergo.notificationservice.repository.EventRepository;
 import ru.pgeenergo.notificationservice.repository.UserRepository;
 import ru.pgeenergo.notificationservice.service.jobs.DelayedNotification;
+import ru.pgeenergo.notificationservice.service.jobs.DelayedWebSocketNotification;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -37,16 +38,19 @@ public class EventService {
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final Scheduler scheduler;
+    private final WebSocketService webSocketService;
 
-    public EventService(EventRepository eventRepository, UserRepository userRepository, Scheduler scheduler) {
+    public EventService(EventRepository eventRepository, UserRepository userRepository, Scheduler scheduler,
+            WebSocketService webSocketService) {
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
         this.scheduler = scheduler;
+        this.webSocketService = webSocketService;
     }
 
     public long create(Event newEvent) {
         Event currentEvent = eventRepository.save(newEvent);
-        processNewEvent(currentEvent, userRepository.findAll());
+        processNewEvent(currentEvent.getMessage(), userRepository.findAll());
         return currentEvent.getId();
     }
 
@@ -55,6 +59,7 @@ public class EventService {
     }
 
     public Optional<Event> get(long eventId) {
+        processNewEvent(eventRepository.findById(eventId).get().getMessage(), userRepository.findAll());
         return eventRepository.findById(eventId);
     }
 
@@ -66,7 +71,7 @@ public class EventService {
         return eventRepository.existsById(eventId);
     }
 
-    private void processNewEvent(Event event, List<User> users) {
+    private void processNewEvent(String eventMessage, List<User> users) {
         int currentDayOfWeek = LocalDate.now().getDayOfWeek().getValue();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
@@ -74,32 +79,59 @@ public class EventService {
             boolean notificationSent = false;
             List<NotificationPeriod> notificationPeriods = user.getNotificationTime();
             LocalTime now = now();
+            String notification = String.format("%s Пользователю %s отправлено оповещение с текстом: %s",
+                    LocalDateTime.now().format(formatter), user.getName(), eventMessage);
             for (NotificationPeriod period : notificationPeriods) {
                 if (period.getDayOfWeek().getValue() == currentDayOfWeek && timeInRange(now, period)) {
-                    sendNotification(user.getName(), event.getMessage(), formatter);
+                    sendNotification(notification);
+                    sendWebSocketNotification(notification);
                     notificationSent = true;
                     break;
                 }
             }
             if (!notificationSent) {
-                createDelayedNotification(user, event.getMessage(), getClosestNotificationTime(notificationPeriods));
+                long userId = user.getId();
+                long notificationTime = getClosestNotificationTime(notificationPeriods);
+                createDelayedNotification(userId, notification, notificationTime);
+                createDelayedWebSocketNotification(userId, notification, notificationTime);
             }
         }
     }
 
-    public void sendNotification(String userName, String eventMessage, DateTimeFormatter formatter) {
-        String dateTime = LocalDateTime.now().format(formatter);
-        logger.info("{} Пользователю {} отправлено оповещение с текстом: {}", dateTime, userName, eventMessage);
+    public void sendNotification(String notification) {
+        logger.info(notification);
     }
 
-    private void createDelayedNotification(User user, String eventMessage, long timestamp) {
+    public void sendWebSocketNotification(String notification) {
+        webSocketService.sendWebSocketNotification(notification);
+    }
+
+    private void createDelayedNotification(long userId, String notification, long timestamp) {
         JobDetail jobDetail = JobBuilder.newJob(DelayedNotification.class)
-                .withIdentity("delayedNotificationUserId" + user.getId())
+                .withIdentity("delayedNotificationUserId" + userId)
                 .storeDurably()
                 .build();
 
-        jobDetail.getJobDataMap().put("eventMessage", eventMessage);
-        jobDetail.getJobDataMap().put("userName", user.getName());
+        jobDetail.getJobDataMap().put("notification", notification);
+
+        Trigger trigger = TriggerBuilder.newTrigger()
+                .forJob(jobDetail)
+                .startAt(new Date(timestamp))
+                .build();
+        try {
+            scheduler.scheduleJob(jobDetail, trigger);
+        } catch (SchedulerException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void createDelayedWebSocketNotification(long userId, String notification, long timestamp) {
+        JobDetail jobDetail = JobBuilder.newJob(DelayedWebSocketNotification.class)
+                .withIdentity("delayedWebSocketNotificationUserId" + userId)
+                .storeDurably()
+                .build();
+
+        jobDetail.getJobDataMap().put("notification", notification);
 
         Trigger trigger = TriggerBuilder.newTrigger()
                 .forJob(jobDetail)
