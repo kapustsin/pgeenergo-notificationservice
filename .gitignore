@@ -1,0 +1,12 @@
+*.class
+*.iml
+*.rar
+*.zip
+Test*.*
+.scannerwork/
+.idea/
+out/
+target/
+HELP.md
+.mvn/
+mvnw*
