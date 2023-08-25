@@ -24,9 +24,8 @@ public class User {
     @CollectionTable(
             schema = "notificationservice",
             name = "notification_period",
-            joinColumns = @JoinColumn(name = "user_id")
-    )
-    @OrderBy(value = "dayOfWeek,beginPeriod")
+            joinColumns = @JoinColumn(name = "user_id"))
+    @OrderBy(value = "dayOfWeek")
     private List<NotificationPeriod> notificationTime;
 
     public long getId() {
