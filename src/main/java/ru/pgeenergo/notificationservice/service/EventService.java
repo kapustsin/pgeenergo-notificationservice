@@ -59,7 +59,6 @@ public class EventService {
     }
 
     public Optional<Event> get(long eventId) {
-        processNewEvent(eventRepository.findById(eventId).get().getMessage(), userRepository.findAll());
         return eventRepository.findById(eventId);
     }
 
